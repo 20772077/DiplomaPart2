@@ -5,6 +5,7 @@ export default createRouter({
     // История переходов сохраняется
     history: createWebHistory(),
 
+
     // Роуты и компоненты
     routes: [
         {
