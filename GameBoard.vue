@@ -7,25 +7,23 @@ export default {
       X_GameField: 16,
       Y_GameField: 16,
       spriteSets:{},
-      spriteSets2: {
+      /*spriteSets2: {
         default: ['🚶🏻‍♂️','🌲','⛰️', '🥔','🌱'],
-        jungle: ['🧑','🌳','🦜', '🥔','🍃'],
-        desert: ['🧍‍♂️','🌵','🏜️', '🥔','🌵'],
+        jungle: ['🚶🏻‍♂️','🌳','🦜', '🥔','🍃'],
+        desert: ['🚶🏻‍♂️','🌵','🏜️', '🥔','🌵'],
         sea: ['🏄🏻‍♂️','🌊','🏝️', '🥔','🌱'],
         volacno: ['🚶🏻‍♂️','♨','🌋', '🥔','🌱'],
         city: ['🚙','🚕','🏙️', '🥔','🌱'],
         mountains: ['🏂','🌨️','🗻', '🥔','🌱']
-        // добавляйте по желанию
-      },
+      },*/
       themes: ['default', 'jungle', 'desert', 'sea', 'volacno', 'city', 'mountains'], // список тем
-      currentSpriteSet: 'default',
-      spriteArray: [],
+      //spriteArray: [],
       backgroundUrl: '',
       musicUrl: '',
       currentSpriteSet: 'default', // активный набор
 
-      spriteArray: ['🚶🏻‍♂️','🌲','⛰️', '🥔','🌱'],
-      mapArray: ['left','right','up','down','index'],
+      //spriteArray: ['🚶🏻‍♂️','🌲','⛰️', '🥔','🌱'],
+      //mapArray: ['left','right','up','down','index'],
       potatoCount: 0,
       size: 0,
       IsWin: false,
@@ -35,46 +33,79 @@ export default {
       audio: null,
     };
   },
-    mounted() {
-      this.audio = new Audio('PixelProject2/src/assets/Meteor.mp3');
-      this.loadGameData().then(() => {
+  mounted() {
+      this.loadSpritesForTheme("default").then(() => {
         this.generateGameField();
       });
       window.addEventListener('keydown', this.handleKeyDown);
+    },
+    beforeUnmount(){
+      this.currentMusic.pause();
     },
   unmounted() {
     window.removeEventListener('keydown', this.handleKeyDown);
   },
   methods: {
-    async loadGameData() {
+    async loadSpritesForTheme(theme) {
       try {
-        console.log(this.currentSpriteSet);
-        const response = await axios.get('/spritesets', { params: { location: this.currentSpriteSet } });
-        console.log(response.data);
-
+        const response = await axios.get('/spritesets', { params: { location: theme } });
         const spritesArray = JSON.parse(response.data[0].sprites[0]);
-        //console.log(spritesArray);
         
-        //spritesArray.forEach(set => {
-        //  this.spriteSets[set.name] = set.sprites;
-        //});
-
-        for(let i =0; i<spritesArray.length; i++){
-          this.spriteSets[i.name] = spritesArray[i];
-          console.log(this.spriteSets[i.name])
-        }
-        console.log(this.spriteSets);
-        this.currentSpriteSet = 'default'; // или выбирайте динамически
+        /*console.log("ss",spritesArray);
+        const newSpriteSets = {};
+        spritesArray.forEach(set => {
+          newSpriteSets[set.name] = set.sprites;
+          console.log(set.sprites)
+        });*/
+        
+        //console.log(this.spriteSets[this.currentSpriteSet])
+        
+        this.spriteSets[theme] = spritesArray; // обновляем все спрайты
+        this.currentSpriteSet = theme;
         this.spriteArray = this.spriteSets[this.currentSpriteSet];
-
-        // Можно также загрузить фоны и музыку, если нужно
-        // например, по аналогии с комментариями
-
-        //this.generateGameField();
+        this.playMusic(theme);
       } catch (e) {
-        console.error('Ошибка загрузки данных:', e);
+        console.error('Ошибка загрузки данных для темы:', e);
       }
-},
+    },
+    async changeToRandomTheme() {
+
+      // выбираем случайную тему
+      const randomTheme = this.themes[Math.floor(Math.random() * this.themes.length)];
+      await this.loadSpritesForTheme(randomTheme);
+      this.currentTheme = randomTheme;
+      this.generateGameField();
+
+      // ставим игрока в стартовую позицию
+      this.playerPos = { x: 0, y: 0 };
+      
+      // Помещаем игрока в новую карту
+      const cell = this.gameMap[0][0];
+      cell.classes = cell.classes.filter(c => c !== 'Player');
+      cell.symbol = cell.originalSymbol;
+      cell.classes.push('Player');
+      this.potatoCount = 0;
+      this.potatoCountText = `Collected potato: ${this.potatoCount}`;
+    },
+    
+        /*async loadGameData() {
+          try {
+            console.log(this.currentSpriteSet);
+            const response = await axios.get('/spritesets', { params: { location: this.currentSpriteSet } });
+            console.log(response.data);
+
+            const spritesArray = JSON.parse(response.data[0].sprites[0]);
+            for(let i =0; i<spritesArray.length; i++){
+              this.spriteSets[i.name] = spritesArray[i];
+            }
+            console.log(this.spriteSets);
+            this.currentSpriteSet = 'default';
+            this.spriteArray = this.spriteSets[this.currentSpriteSet];
+
+          } catch (e) {
+            console.error('Ошибка загрузки данных:', e);
+          }
+    },*/
     generateGameField() {
       const sprites = this.spriteSets[this.currentSpriteSet]; // текущий набор спрайтов
       this.spriteArray = sprites; // обновляем свойство, чтобы далее использовался правильный набор
@@ -150,60 +181,40 @@ export default {
     },
 
     movePlayer(dx, dy) {
-      //console.log("entered movePlayer()")
-      //this.audio.play();
-
       const newX = this.playerPos.x + dx;
       const newY = this.playerPos.y + dy;
 
-      // границы
+      // Если вышли за границы
       if (newX < 0 || newX >= this.X_GameField || newY < 0 || newY >= this.Y_GameField) {
-        
         if (this.IsWin) {
-        // выбираем новый набор спрайтов
-          const spriteKeys = Object.keys(this.spriteSets);
-          const newSetKey = spriteKeys[Math.floor(Math.random() * spriteKeys.length)];
-          this.currentSpriteSet = newSetKey;
-          let resultLocation = `level${Math.floor(Math.random() * this.mapArray.length)}`;
-          this.$router.push({ name:  resultLocation})
+          // Игра победила, выбираем новую тему и генерируем новую карту
+          this.changeToRandomTheme();
           this.IsWin = false;
-          this.generateGameField();
-          
-          //const res = this.mapArray[Math.floor(Math.random() * this.mapArray.length)];
-          
-          //window.location.href = `${res}.html`; //смена уровня после победы
         }
-       
         return;
-
       }
 
+      // остальные проверки и движение по карте...
       const targetCell = this.gameMap[newX][newY];
       const currentCell = this.gameMap[this.playerPos.x][this.playerPos.y];
 
-      // Проверка стены
       if (targetCell.symbol === this.spriteArray[2]) {
+        // стена
         return;
       }
 
-      // Удаляем класс 'Player' у текущей ячейки и восстанавливаем её символ
+      // Передвижение игрока
       currentCell.classes = currentCell.classes.filter(c => c !== 'Player');
-      currentCell.symbol = currentCell.originalSymbol; // возвращаем исходный символ
+      currentCell.symbol = currentCell.originalSymbol;
 
-      // Добавляем класс 'Player' к целевой ячейке
       targetCell.classes.push('Player');
-      
-      // Устанавливаем символ 'игрока' для новой ячейки
-      targetCell.symbol = this.spriteArray[0]; // или другой прямой костыль, если хотите постоянного спрайта
+      targetCell.symbol = this.spriteArray[0];
 
-      // Обновляем позицию
       this.playerPos = { x: newX, y: newY };
-      //console.log(targetCell.symbol)
-      //console.log(this.spriteArray[3])
-      // Проверка на картошку
+
       if (targetCell.hasPotato) {
-        targetCell.hasPotato = false; // собираем картошку
-        targetCell.symbol = this.spriteArray[0]; // после сбора меняем символ
+        targetCell.hasPotato = false;
+        targetCell.symbol = this.spriteArray[0];
         this.potatoCount += 1;
         this.potatoCountText = `Collected potato: ${this.potatoCount}`;
         this.checkWin();
@@ -212,11 +223,8 @@ export default {
 
     checkWin() {
       if (this.potatoCount >= this.size) {
-        alert('You unlock more levels!');
+        alert('You win! Moving to a new random location with a different theme.');
         this.IsWin = true;
-        this.potatoCount = 0;
-        this.potatoCountText = `Collected potato: ${this.potatoCount}`;
-        // можно добавить логику смены уровня
       }
     },
     incr(){
@@ -224,17 +232,38 @@ export default {
       //console.log(this.size);
       this.potatoCount++;
       this.potatoCountText = `Collected potato: ${this.potatoCount}`;
-      checkWin();
+      this.checkWin();
+    },
+    playMusic(theme) {
+      if (this.currentMusic) {
+        this.currentMusic.pause();
+      }
+      this.currentMusic = new Audio(`/assets/music/${theme}.mp3`);
+      this.currentMusic.loop = true;
+      this.currentMusic.play();
+    },
+    playFirstTime(){
+      this.playMusic("default");
     }
+
+  },
+  computed: {
+  backgroundStyle() {
+    return {
+      backgroundImage: `url(/assets/images/${this.currentSpriteSet}.png)`,
+      backgroundRepeat: 'no-repeat'
+    };
   }
+}
 };
 
 </script>
 
 <template>
-  <div>
+  
+  <div :style="backgroundStyle" id="bod">
     <!-- Информация о собранных картошках -->
-    <p class="centreP">{{ potatoCountText }}</p> <button @click="incr()">+</button>
+    <p class="centreP">{{ potatoCountText }}</p>
 
     <!-- Игровое поле -->
     <table class="centre">
@@ -248,7 +277,9 @@ export default {
         </tr>
       </tbody>
     </table>
+    <button @click="incr()">add</button><button @click="playMusic('default')" ref="palyBtn" type="button">play</button>
   </div>
+  
 </template>
 
 <style scoped>
@@ -289,8 +320,13 @@ header {
     margin-right: auto;
 }
 #bod{
-    background-image: url(/dd.png);
-    background-repeat: no-repeat;
+  width: 100vw;             /* ширина 100% от viewport */
+  height: 100vh;            /* высота 100% от viewport */
+  background-position: center; /* центрирование изображения */
+  background-size: cover;      /* масштабирование для покрытия всего блока */
+  transition: background-image 0.7s ease;
+    /*background-image: url('../../assets/images/default.png');
+    background-repeat: no-repeat;*/
 }
 .centreP{
     text-align: center;
