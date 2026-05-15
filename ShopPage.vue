@@ -95,6 +95,9 @@ import axios from 'axios';
                                         console.error('Error updating document:', error);
                                     });
                                     // НА ДАННЫЙ МОМЕНТ РАБОТАЕТ (17.12.25)
+                                    this.audio = new Audio(`/assets/music/buysound.mp3`);
+                                    this.audio.loop = false;
+                                    this.audio.play();
                                     return;
                                 
                                 }
@@ -128,6 +131,9 @@ import axios from 'axios';
                                         console.error('Error updating document:', error);
                                     });
                                     // НА ДАННЫЙ МОМЕНТ РАБОТАЕТ (17.12.25)
+                                    this.audio = new Audio(`/assets/music/buysound.mp3`);
+                                    this.audio.loop = false;
+                                    this.audio.play();
                                     alert("Поздравляем, Вы прошли игру! Теперь Вы можете собирать самое большое чилсо картошки!");
                                     return;
                                 }

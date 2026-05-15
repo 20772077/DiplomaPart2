@@ -1,10 +1,12 @@
 <script>
 import axios from 'axios';
+import HunterRLM from './../../services/hunter';
 export default{
     data(){
         return{
             logged: false,
-            current_user: null
+            current_user: null,
+            isStoped: false,
         }
     },
     mounted() {
@@ -13,6 +15,11 @@ export default{
             console.log(storedLogged)
             this.logged = storedLogged === 'true';
             this.current_user = JSON.parse(localStorage.getItem('current_user'));
+
+            if (this.currentMusic) {this.currentMusic.pause();}
+            this.mainMenuMusic = new Audio(`assets/music/potatocatchertheme.mp3`);
+            this.mainMenuMusic.loop = true;
+            this.mainMenuMusic.play();
             /*const storedUser = localStorage.getItem('current_user');
             if (storedUser) {
                 try {
@@ -25,20 +32,29 @@ export default{
                 this.current_user = null;
             }*/
         },
+    beforeUnmount(){
+      this.mainMenuMusic.pause();
+    },
     methods: {
-        GoToGame(){
+        async GoToGame(){
             if(this.logged === false){
                 this.logged = true;
-                localStorage.setItem('logged', this.logged)
+                localStorage.setItem('logged', this.logged);
                 this.$router.push({
                     name: 'login'
                     })
             }
-            else{
+            else{            
             this.$router.push({
                     name: 'level0'
                 })
             }
+            // Инициализация охотника
+            //const hunter_AI = new HunterRLM(12, 27);
+            //await hunter_AI.buildModel();
+            //console.log(hunter_AI);
+            // Сохраняем модель в IndexedDB
+            //await hunter_AI.model.save('indexeddb://hunter-model');
         },
         GoToShop(){
             if(this.logged === false){
@@ -104,7 +120,17 @@ export default{
                 // Операция отменена
                 alert("Удаление отменено");
             }
-        }
+        },
+        manipulateMainMenuMusic(){
+            if(!this.isStoped){ // МУЗЫКА НЕ ОСТАНОВЛЕНА
+                this.isStoped = true;
+                this.mainMenuMusic.pause();
+            }
+            else{
+                this.isStoped = false;
+                this.mainMenuMusic.play();
+            }
+    },
 
     }
 }
@@ -112,6 +138,7 @@ export default{
 
 <template>
     <div id="bodMM">
+        <button @click="manipulateMainMenuMusic" class="music-controller">{{ isStoped ? "🔈": "🔊" }}</button>
         <div class="game-title"><h1>POTATO CATCHER</h1></div>
         <div class="buttons">
             <div class="button-start">
@@ -165,7 +192,7 @@ export default{
 }
 .game-title{
     margin: 0 auto; /* Не сработает без width */
-    margin-top: 5%;
+    margin-top: 3%;
     width: 39vw; /* Добавить явную ширину */
     padding: 1%;
     font-family:    'MV Boli',
@@ -276,5 +303,19 @@ export default{
     filter: blur(3px);
     -webkit-filter: blur(3px); /* Для старых браузеров */
     z-index: -1;
+}
+
+.music-controller{
+    background: none;
+    min-height: 43px;
+    font-size: 22px;
+    border: none;
+    transition: 0.2s;
+    margin-bottom: -43px;
+    padding: 1%;
+}
+.music-controller:hover{
+    cursor: pointer;
+    transform: scale(1.3);
 }
 </style>
