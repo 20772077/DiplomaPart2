@@ -292,5 +292,5 @@ table {
     cursor: pointer;
     transform: scale(1.3);
 }
-/*.item-container{}*/
+
 </style>

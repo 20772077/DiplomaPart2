@@ -4,14 +4,12 @@ import NavBar from './NavBar.vue';
 import Button from './Button.vue';
 import * as tf from '@tensorflow/tfjs';
 import HunterRLM from './../../services/hunter';
-
-
 export default {
   name: 'GameBoard',
   data() {
     return {
-      X_GameField: 12,
-      Y_GameField: 27,                //2.25x от X_GameField
+      X_GameField: 12,                // КОЛИЧЕСТВО СТРОК
+      Y_GameField: 27,                // КОЛИЧЕСТВО СТОЛБЦОВ 2.25x от X_GameField
       spriteSets:{},
       themes: ['default', 'jungle', 'desert', 'sea', 'volcano', 'city', 'mountains'], // список тем
       currentSpriteSet: 'default',    // активный набор
@@ -28,7 +26,7 @@ export default {
       ai_game_field: [],                       // многомерный "Подготовленный массив" с набором данных о положении на карте
       hunterAIReady: false, // Охотник будет жить здесь
       isLearning: false,
-      isGameOver: false
+      isGameOver: false,
 //--- AI MODIFICATIONS ---//
     };
   },
@@ -39,34 +37,44 @@ export default {
       await this.loadSpritesForTheme("default").then(() => {this.generateGameField();});
       window.addEventListener('keydown', this.handleKeyDown);
       this.current_user = JSON.parse(localStorage.getItem('current_user'));
-       // Загружаем модель из IndexedDB
-      //await this.loadHunterFromIndexedDB();
       await this.loadModelFromServer();
     },
  async beforeUnmount(){
       this.currentMusic.pause();
                         // обучение модели
       if (this.isGameOver == true){
+        ////====STATS====////
+        /*console.log('Перед сохранением:', {
+          chooseSearch: this.hunterAI?.chooseSearch,
+          chooseExploit: this.hunterAI?.chooseExploit,
+          games: this.hunterAI?.games,
+          catches: this.hunterAI?.catch
+        });*/
+        let statsData = {
+          chooseSearch: this.hunterAI.chooseSearch,
+          chooseExploit: this.hunterAI.chooseExploit,
+          games: this.hunterAI.games,
+          catches: this.hunterAI.catches
+        };
+        console.log('Перед сохранением:', {
+          chooseSearch: statsData.chooseSearch,
+          chooseExploit: statsData.chooseExploit,
+          games: statsData.games,
+          catches: statsData.catches
+        });
+        if ((this.hunterAI?.games || 0) > 0 && (this.hunterAI.chooseSearch + this.hunterAI.chooseExploit > 0)) {
+          await axios.post('/api/stats', statsData);
+        }
+        this.hunterAI.chooseSearch = 0;
+        this.hunterAI.chooseExploit = 0;
+        this.hunterAI.catches = 0;
+        this.hunterAI.games = 0;
+        ////====STATS====////
         this.isGameOver = false;   
         this.saveData();
-        /*const updatedData = {
-              name: this.current_user.name,
-              dynamite: this.current_user.dynamite,
-              potatoes: this.current_user.potatoes,
-              hasVictory: this.current_user.hasVictory
-          };
-          const user_id = this.current_user._id;
-          axios.put(`/api/items/${user_id}`, updatedData)
-          .then(response => {
-            console.log('Update successful:', response.data);
-          })
-          .catch(error => {
-            console.error('Error updating document:', error);
-          });*/
-
         if (this.hunterAI && this.hunterAI.memory && this.hunterAI.memory.length > 0) {
               this.isLearning = true;
-              const batchSize = Math.min(this.hunterAI.memory.length, 15);
+              const batchSize = Math.min(this.hunterAI.memory.length, 128);
               await this.hunterAI.replay(batchSize).then(() => {
           });
         }
@@ -87,12 +95,21 @@ export default {
         this.currentSpriteSet = theme;
         this.spriteArray = this.spriteSets[this.currentSpriteSet];
         this.playMusic(theme);
+        //this.hunterAI.model.summary();
       } catch (e) {
         console.error('Ошибка загрузки данных для темы:', e);
       }
     },
     async changeToRandomTheme() {
-
+      ////====STATS====////
+      let statsData = {
+        chooseSearch: this.hunterAI.chooseSearch,
+        chooseExploit: this.hunterAI.chooseExploit,
+        games: this.hunterAI.games,
+        catches: this.hunterAI.catches
+      }
+      const query = await axios.post('/api/stats', statsData);
+      ////====STATS====////
       // выбираем случайную тему
       let randomTheme = this.themes[Math.floor(Math.random() * this.themes.length)];
       await this.loadSpritesForTheme(randomTheme);
@@ -108,13 +125,38 @@ export default {
       cell.classes.push('Player');
       this.potatoCount = 0;
       this.potatoCountText = `${this.potatoCount}`;
+      
+      //Сброс позиции охотника
+      if (this.hunterAI) {
+        // Старая позиция охотника (очищаем спрайт)
+        const oldHunterPos = this.hunterAI.getHunterPosition();
+        if (oldHunterPos) {
+          const oldRow = oldHunterPos.yPos;
+          const oldCol = oldHunterPos.xPos;
+          const oldCell = this.gameMap[oldRow]?.[oldCol];
+          if (oldCell) {
+            oldCell.classes = oldCell.classes.filter(c => c !== 'Hunter');
+            oldCell.symbol = oldCell.originalSymbol;
+          }
+        }
+      }
+        // Новая позиция охотника (правый нижний угол)
+        const newRow = this.X_GameField - 1;
+        const newCol = this.Y_GameField - 1;
+
+        const newHunterCell = this.gameMap[newRow][newCol];
+        newHunterCell.classes.push('Hunter');
+        newHunterCell.symbol = this.spriteArray[4];
+
+        // Обновляем hunterAI
+        this.hunterAI.hunterPosition = [{ xPos: newCol, yPos: newRow }];
 
 
               /////
         // обучение модели
         if (this.hunterAI && this.hunterAI.memory && this.hunterAI.memory.length > 0) {
           this.isLearning = true;
-          const batchSize = Math.min(this.hunterAI.memory.length, 15);
+          const batchSize = Math.min(this.hunterAI.memory.length, 128);
           await this.hunterAI.replay(batchSize).then(() => {
         alert('Охотник стал умнее...');
     });
@@ -169,6 +211,8 @@ export default {
       
       // Обновляем отображение счёта
       this.potatoCountText = /*`Collected potato:*/ `${this.potatoCount}`;
+      console.log('📍 Охотник стартует:', { x: this.X_GameField - 1, y: this.Y_GameField - 1 });
+      console.log('📍 Игрок стартует:', { x: 0, y: 0 });
     // >>> ИНИЦИАЛИЗАЦИЯ ОХОТНИКА ЗДЕСЬ <<<
         //this.initHunter();
       //this.resetHunter();
@@ -246,31 +290,20 @@ export default {
       }
     },
     movePlayer(dx, dy) {
+      const oldX = this.playerPos.x;
+      const oldY = this.playerPos.y;
       const newX = this.playerPos.x + dx;
       const newY = this.playerPos.y + dy;
 
       // Если вышли за границы
       if (newX < 0 || newX >= this.X_GameField || newY < 0 || newY >= this.Y_GameField) {
         if (this.IsWin) {
-          // Игра победила, выбираем новую тему и генерируем новую карту
+          // Игрок победил, выбираем новую тему и генерируем новую карту
           // Тут же записываем в БД новые счётчики игрока - количество картофелей и динамита
-          // НА ДАННЫЙ МОМЕНТ РАБОТАЕТ (17.12.25)
           this.saveData();
-          /*const updatedData = {
-              name: this.current_user.name,
-              dynamite: this.current_user.dynamite,
-              potatoes: this.current_user.potatoes,
-              hasVictory: this.current_user.hasVictory
-          };
-          const user_id = this.current_user._id;
-          axios.put(`/api/items/${user_id}`, updatedData)
-          .then(response => {
-            console.log('Update successful:', response.data);
-          })
-          .catch(error => {
-            console.error('Error updating document:', error);
-          });*/
-          // НА ДАННЫЙ МОМЕНТ РАБОТАЕТ (17.12.25)
+          ////====STATS====////
+          this.hunterAI.games++;
+          ////====STATS====////
           this.changeToRandomTheme();
           this.IsWin = false;
         }
@@ -303,12 +336,15 @@ export default {
             this.potatoCount = this.current_user.potatoes;
             localStorage.setItem('current_user', JSON.stringify(this.current_user));
           }
-          alert("Охотник поймал Вас!");
+        this.hunterAI.games++;
+        this.hunterAI.catches++;
+        alert("Охотник поймал Вас!" + this.hunterAI.catches);
+          this.isGameOver = true;
           this.$router.push({
                     name: 'mainmenu'
-                })
+                });
+        return;
       }
-
 
       // Передвижение СПРАЙТА игрока
       currentCell.classes = currentCell.classes.filter(c => c !== 'Player');
@@ -325,17 +361,20 @@ export default {
         this.potatoCount += 1;
         this.current_user.potatoes += 1;
         localStorage.setItem('current_user', JSON.stringify(this.current_user));
-        //this.potatoCountText = /*`Collected potato:*/ `${this.potatoCount}`;
         this.checkWin();
       }
-      //ВСЕГДА ПОСЛЕ СЕБЯ БУДЕТ ОСТАВЛЯТЬ КЛЕТКУ ПО КОТОРОЙ МОЖНО ХОДИТЬ; НАДО ОТРАБОТАТЬ ПРЕПЯДСТВИЕ + НЕТ ДИНАМИТА
+      //ВСЕГДА ПОСЛЕ СЕБЯ БУДЕТ ОСТАВЛЯТЬ КЛЕТКУ ПО КОТОРОЙ МОЖНО ХОДИТЬ;
       this.ai_prepare_prepared_array();
-      this.ai_change_prepared_array_after_turn(dx,dy,newX,newY);
+      this.ai_change_prepared_array_after_turn(oldX,oldY,newX,newY);
       this.$forceUpdate(); // Чтобы туман перерисовался
     },
     async checkWin() {
       if (this.potatoCount >= this.size) {
-        if (this.hunterAI && this.hunterAI.model) {await this.saveModelToServer();}
+        if (this.hunterAI && this.hunterAI.model) { 
+          ////====STATS====////
+        this.hunterAI.games++;
+          ////====STATS====////
+        await this.saveModelToServer();}
         alert('You win! Moving to a new random location with a different theme.');
         this.IsWin = true;
       }
@@ -423,47 +462,6 @@ export default {
                     this.currentMusic.play();
                 }
     },
-/////////////////////////////////////////
-    /*async loadHunterFromIndexedDB() {
-        try {
-            // Пытаемся загрузить сохраненную модель
-            //console.log(model); 
-            
-            this.hunterAI = new HunterRLM(this.X_GameField, this.Y_GameField);
-            this.hunterAI.model = model;
-
-             // ВАЖНО: Перекомпилируем модель!
-            this.hunterAI.model.compile({
-                optimizer: tf.train.adam(this.hunterAI.learningRate),
-                loss: 'meanSquaredError'
-            });
-            this.hunterAI.modelReady = true;
-
-            // ВАЖНО: Убеждаемся, что gameMap уже создан
-            if (!this.gameMap || this.gameMap.length === 0) {
-                console.error('gameMap не готов!');
-                return;
-            }
-            // Устанавливаем начальную позицию
-            const startPos = {
-                xPos: this.Y_GameField - 1,
-                yPos: this.X_GameField - 1
-            };
-            this.hunterAI.hunterPosition = [startPos];
-            this.ai_prepare_prepared_array();
-            this.hunterAI.setGameField(this.ai_game_field);
-            this.hunterAI.setPlayerPosition();
-            this.hunterAI.setPotatoPosition(); // ← Добавь!
-            this.hunterAI.setHunterPosition();
-            this.hunterAIReady = true;
-            console.log('Охотник загружен из IndexedDB');
-            console.log(this.hunterAI);
-            
-        } catch (e) {
-            console.log('Нет сохраненной модели');
-            console.error(e);
-        }
-    },*/
     async loadModelFromServer(){
       try{
         const response = await axios.get('/api/load-model');
@@ -497,7 +495,7 @@ export default {
             this.ai_prepare_prepared_array();
             this.hunterAI.setGameField(this.ai_game_field);
             this.hunterAI.setPlayerPosition();
-            this.hunterAI.setPotatoPosition(); // ← Добавь!
+            this.hunterAI.setPotatoPosition(); 
             this.hunterAI.setHunterPosition();
             this.hunterAIReady = true;
             console.log(this.hunterAI);
@@ -581,26 +579,39 @@ export default {
       return 0;
     },
     async ai_change_prepared_array_after_turn(oldX,oldY,newX,newY){
+      if (!this.playerPos || !this.hunterAI) {
+        return; // Игрок уже ушёл, охотнику не нужно ходить
+      }
       if(!this.hunterAI){
         console.error("AI is not detected");
         return;
       }
+      // 1. Получаем текущую позицию ОХОТНИКА
+      const hunterPos = this.hunterAI.getHunterPosition();
+      const hunterRow = hunterPos.yPos;  // строка
+      const hunterCol = hunterPos.xPos;  // столбец
       
-      const startX = newX-oldX;
-      const startY = newY-oldY;
-      
-      this.ai_game_field[startX][startY] = 1;
+
+      this.ai_game_field[oldX][oldY] = 1;
       this.ai_game_field[newX][newY] = 0;
+
+      // 3. Убеждаемся, что охотник правильно отображается в ai_game_field
+      // (его позиция уже должна быть 4, но на всякий случай проверим)
+      if (this.ai_game_field[hunterRow][hunterCol] !== 4) {
+        console.warn('Охотник потерялся в ai_game_field!');
+        this.ai_game_field[hunterRow][hunterCol] = 4;
+      }
     
       this.hunterAI.setGameField(this.ai_game_field);
       
       this.hunterAI.setPlayerPosition();
       this.hunterAI.setPotatoPosition();
       this.hunterAI.setHunterPosition();
+
       
       //hunter.getGameField();
       const currentState = this.hunterAI.getStateFromGrid();
-      //console.log('Состояние для нейросети:', currentState);
+      console.log('Состояние для нейросети:', currentState);
       
       const action = await this.hunterAI.chooseAction(currentState);
       let hunterDx = 0;
@@ -608,9 +619,14 @@ export default {
       switch(action){
         case 0: hunterDy = -1; break; // влево
         case 1: hunterDy = 1; break; // вправо
-        case 2: hunterDx = -1; break; // ввехр
+        case 2: hunterDx = -1; break; // вверх
         case 3: hunterDx = 1; break; // вниз
       }
+      console.log('=== ОБНОВЛЕНИЕ AI FIELD ===');
+      console.log('Игрок был:', oldX, oldY);
+      console.log('Игрок стал:', newX, newY);
+      console.log('Охотник в ai_game_field:', this.ai_game_field[hunterRow][hunterCol]);
+      console.log('Игрок в ai_game_field:', this.ai_game_field[newX][newY]);
       //console.log('Охотник двигается:', hunterDx, hunterDy);
       this.moveHunter(hunterDx, hunterDy, this.hunterAI);
     },
@@ -619,7 +635,6 @@ export default {
       // positionBefore: { xPos: столбец, yPos: строка }
       const oldRow = hunterAI_.getHunterPosition().yPos;     // строка (для gameMap первый индекс)
       const oldCol = hunterAI_.getHunterPosition().xPos;     // столбец (для gameMap второй индекс)
-      
       // Получение состояния ДО движения (для обучения)
       const state = hunterAI_.getStateFromGrid();
       const action = this.getActionFromDirection(dx, dy);
@@ -637,10 +652,10 @@ export default {
         done = true;
       }
       else if(this.gameMap[newRow][newCol].symbol === this.spriteArray[3]){
-        reward = -0.3;    // Наказание за врезание в картошку
+        reward = -0.2;    // Наказание за врезание в картошку
         this.ai_game_field[oldRow][oldCol] = 4;  // 4 - охотник
         hunterAI_.hunterPosition = [{xPos: oldCol, yPos: oldRow}];
-        done = true;
+        done = false;
       }
 
       // остальные проверки и движение по карте
@@ -662,16 +677,70 @@ export default {
         const newDist = Math.abs(newRow - playerPos_.x) + Math.abs(newCol - playerPos_.y);
 
         // Выдача награды за приближение к игроку
+        // 1. Если расстояние уменьшилось
         if (newDist < oldDist){
-          reward = 1;           // Хорошо, приближение к игроку
-        } else if (newDist > oldDist){
-          reward = -0.5;        // Плохо, отдаление от игрока
-        } else {
-          reward = -0.1;        // Топтание на месте
+          reward = 1.8;           // Хорошо, приближение к игроку
+          // Бонус за движение в сторону игрока
+          // Расстояние до игрока по горизонтали
+          const oldHorDist = Math.abs(playerPos_.y - oldCol);
+          const newHorDist = Math.abs(playerPos_.y - newCol);
+
+          // Расстояние до игрока по вертикали
+          const oldVerDist = Math.abs(playerPos_.x - oldRow);
+          const newVerDist = Math.abs(playerPos_.x - newRow);
+
+          // Бонус за приближение по горизонтали
+          if (newHorDist < oldHorDist) {
+            reward += 0.3;
+          }
+          // Бонус за приближение по вертикали
+          if (newVerDist < oldVerDist) {
+            reward += 0.3;
+          }
+          hunterAI_.stepsTowardsPlayer = 0;
+        } 
+        // 2. Если расстояние увеличилось
+        else if (newDist > oldDist){
+          reward = -0.8;        // Плохо, отдаление от игрока
+          hunterAI_.stepsTowardsPlayer++;
+        } 
+        // 3. Расстояние не изменилось 
+        else {
+          reward = -0.2;        // Топтание на месте
+          hunterAI_.stepsTowardsPlayer++;
         }
+        // 4. Если долго не может приблизиться (10+ шагов без прогресса)
+        if (hunterAI_.stepsTowardsPlayer > 10) {
+          reward -= 0.5;
+          console.log(`⚠️ ${this.stepsTowardsPlayer} шагов без приближения — штраф`);
+          hunterAI_.stepsTowardsPlayer = 0;
+        }
+        // 5. Если охотник очень близко (расстояние 1 или 2)
+        if (newDist <= 2) {
+          // Бонус за агрессивное преследование
+          reward += 0.3;
+        }
+        // Бонус за смену позиции (исследование нового состояния)
+        if (oldRow !== newRow || oldCol !== newCol) {
+          reward += 0.2;  // небольшой бонус за любое движение
+        }
+        // После расчёта награды
+        if (newDist >= oldDist) {  // не приблизился или отдалился
+          hunterAI_.stepsWithoutApproach++;
+          if (hunterAI_.stepsWithoutApproach >= 15) {
+            reward -= 0.8;
+            hunterAI_.stepsWithoutApproach = 0;
+            console.log('⚠️ Долгое отсутствие прогресса — дополнительный штраф');
+          }
+        } else {
+          hunterAI_.stepsWithoutApproach = 0;
+        }
+
+        
         // Бонус за поимку игрока
         if (newRow === playerPos_.x && newCol === playerPos_.y){
-          reward = 10;
+          reward = 15; // Немедленное обучение на этом опыте
+        
           this.isGameOver = true;    
           if (this.current_user.potatoes >= 2){
             this.current_user.potatoes -= 2;
@@ -682,14 +751,16 @@ export default {
             this.potatoCount = this.current_user.potatoes;
             localStorage.setItem('current_user', JSON.stringify(this.current_user));
           }
-          alert("Охотник поймал Вас!");
+          //for stats
+          ////====STATS====////
+          this.hunterAI.catches++;
+          ////====STATS====////
+          alert("Охотник поймал Вас!" + this.hunterAI.catches);
           this.$router.push({
                     name: 'mainmenu'
                 })
-          ////////////////////////////////////////////////////
-          /// ТУТ ДОДЕЛАТЬ ЛОГИКУ ПОИМКИ - ЧТО БУДЕТ ДАЛЕЕ ///
-          ////////////////////////////////////////////////////
         }
+        console.log('reward: '+reward);
         // Передвижение СПРАЙТА охотника
           
           const targetCell_AI = this.gameMap[newRow][newCol];
@@ -709,22 +780,18 @@ export default {
               // Обновляем hunterPosition в hunterAI
               hunterAI_.hunterPosition = [{xPos: newCol, yPos: newRow}];
           }
+        console.log('ai_game_field после движения:');
+        console.table(this.ai_game_field.slice(Math.max(0, newRow - 2), newRow + 3).map(row => row.slice(Math.max(0, newCol - 2), newCol + 3)));
       }
    
       const nextState = hunterAI_.getStateFromGrid();
       // Сохранение опыта
       hunterAI_.remember(state, action, reward, nextState, done);
 
-      // Обучение на батче
-      /*if (hunterAI_.memory && hunterAI_.memory.length >= hunterAI_.batchSize){
-        hunterAI_.replay(hunterAI_.batchSize);
-      }*/
-
-      // Уменьшение epsilon (так со временем будет меншье случайных действий)
+      // Уменьшение epsilon (так со временем будет меньше случайных действий)
       if (hunterAI_.epsilon > hunterAI_.epsilonMin){
         hunterAI_.epsilon = hunterAI_.epsilon * hunterAI_.epsilonDecay;
       }
-
     },
     // При старте игры загружаем общую модель
     async saveModelToServer() {
@@ -740,39 +807,50 @@ export default {
         console.error(e);
       }
     },
-   /* async loadSharedModel() {
-      const response = await axios.get('/api/load-model');
-      await this.hunterAI.importModelFromJSON(response.data);
-    },
-*/
     // ТУМАН ВОЙНЫ //
-  isCellInFog(row, col) {
-    const playerX = this.playerPos.x;
-    const playerY = this.playerPos.y;
-    
-    // Используем евклидово расстояние для круглой формы
-    const distance = Math.sqrt(
-      Math.pow(row - playerX, 2) + Math.pow(col - playerY, 2)
-    );
-    
-    return distance > 2; // true если клетка в тумане
-  },
-  saveData(){
-    const updatedData = {
-              name: this.current_user.name,
-              dynamite: this.current_user.dynamite,
-              potatoes: this.current_user.potatoes,
-              hasVictory: this.current_user.hasVictory
-          };
-          const user_id = this.current_user._id;
-          axios.put(`/api/items/${user_id}`, updatedData)
-          .then(response => {
-            console.log('Update successful:', response.data);
-          })
-          .catch(error => {
-            console.error('Error updating document:', error);
-          });
-  }
+    isCellInFog(row, col) {
+      const playerX = this.playerPos.x;
+      const playerY = this.playerPos.y;
+      
+      // Используем евклидово расстояние для круглой формы
+      const distance = Math.sqrt(
+        Math.pow(row - playerX, 2) + Math.pow(col - playerY, 2)
+      );
+      
+      return distance > 2; // true если клетка в тумане
+    },
+    saveData(){
+      const updatedData = {
+                name: this.current_user.name,
+                dynamite: this.current_user.dynamite,
+                potatoes: this.current_user.potatoes,
+                hasVictory: this.current_user.hasVictory
+            };
+            const user_id = this.current_user._id;
+            axios.put(`/api/items/${user_id}`, updatedData)
+            .then(response => {
+              console.log('Update successful:', response.data);
+            })
+            .catch(error => {
+              console.error('Error updating document:', error);
+            });
+    },
+    async showStats() {
+      const response = await axios.get('/api/stats');
+      const { chooseSearch, chooseExploit, games, catches } = response.data;
+
+      const totalActions = chooseSearch + chooseExploit;
+      const explorePercent = totalActions ? (chooseSearch / totalActions * 100) : 0;
+      const exploitPercent = totalActions ? (chooseExploit / totalActions * 100) : 0;
+      const catchRate = games ? (catches / games * 100) : 0;
+
+      alert(`
+        Исследований: ${explorePercent.toFixed(1)}%
+        Эксплуатаций: ${exploitPercent.toFixed(1)}%
+        Поимок за игру: ${catchRate.toFixed(1)}%
+        Сыграно уровней: ${games}
+    `);
+    }
 
   },
   computed: {
@@ -854,54 +932,50 @@ export default {
 </script>
 
 <template>
-  
+
   <div :style="backgroundStyle" id="bod">
     <!-- Информация о собранных картошках -->
     <!--<nav class="nav-bar"></nav>-->
-      <NavBar>
-        <template #left>
-          <div class="btn-back">
-            <Button></Button>
-            <button @click="manipulateShopMusic" class="music-controller">{{ isStoped ? "🔈": "🔊" }}</button>
-          </div>
+    <NavBar>
+      <template #left>
+        <div class="btn-back">
+          <Button></Button>
+          <button @click="manipulateShopMusic" class="music-controller">{{ isStoped ? "🔈": "🔊" }}</button>
+        </div>
       </template>
+
       <template #right>
-        <p class="username">{{ current_user?.name }}'s potato adventure</p>
+        <p class="username" @click="showStats">{{ current_user?.name }}'s potato adventure</p>
         <div class="potato-balance">
           <p class="potato-count">{{ current_user?.dynamite }}&nbsp;🧨</p>
           <p class="potato-count">{{ current_user?.potatoes }}&nbsp;🥔</p>
         </div>
       </template>
-      </NavBar>
+    </NavBar>
 
-  <!----- Игровое поле ----->
+    <!----- Игровое поле ----->
     <table class="centre">
       <tbody>
         <tr v-for="(row, rowIndex) in gameMap" :key="rowIndex">
 
-          <td v-for="(cell, colIndex) in row" :key="colIndex"
-            :class="cell.classes"
-            :data-symbol="cell.symbol"
-            :data-fog="isCellInFog(rowIndex, colIndex)"
-            :style="fogOfWarStyle(rowIndex, colIndex)"
+          <!--  <td v-for="(cell, colIndex) in row" :key="colIndex" :class="cell.classes" :data-symbol="cell.symbol"
+            :data-fog="isCellInFog(rowIndex, colIndex)" :style="fogOfWarStyle(rowIndex, colIndex)"
+            @keydown="handleKeyDown($event)">
+            {{ cell.symbol }}
+          </td>-->
+
+
+          <td v-for="(cell, colIndex) in row" :key="colIndex" :class="cell.classes" :data-symbol="cell.symbol"
             @keydown="handleKeyDown($event)">
             {{ cell.symbol }}
           </td>
-
-         <!-- 
-          <td v-for="(cell, colIndex) in row" :key="colIndex"
-            :class="cell.classes"
-            :data-symbol="cell.symbol"
-            @keydown="handleKeyDown($event)">
-            {{ cell.symbol }}
-          </td>        -->
         </tr>
       </tbody>
     </table>
-      <!--<button @click="incr()">add</button>-->
-      <!--<button @click="playMusic('default')" ref="palyBtn" type="button">play</button>-->
+    <!--<button @click="incr()">add</button>-->
+    <!--<button @click="playMusic('default')" ref="palyBtn" type="button">play</button>-->
   </div>
-  
+
 </template>
 
 <style scoped>

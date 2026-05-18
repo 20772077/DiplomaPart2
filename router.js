@@ -29,7 +29,7 @@ export default createRouter({
         },
         {
             name: 'login',
-            path: '/login',
+            path: '/login/:cameFrom?',
             component: LoginPage
         },
         {

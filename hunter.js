@@ -7,8 +7,15 @@ class HunterRLM {
     hunterPosition;
     potatoPosition;
     model;
+    chooseSearch;
+    chooseExploit;
+    catches;
+    games;
     constructor(xLenght_, yLenght_) {
-        
+    this.chooseSearch = 0;
+    this.chooseExploit = 0;
+    this.catches = 0;
+    this.games = 0;
 // Для CartPole: позиция, скорость, угол, угловая скорость. 
 // Для меня: (1)игровое поле; (2)позиция игрока; (3)позиция охотника; (4??)позиция картошек; (5)позиция всех препядствий
 // Все эти данные можно извлечь из Подготовленного двумерного массива (ПДМ), который подаётся на вход модели    
@@ -35,14 +42,21 @@ class HunterRLM {
         this.model = null;
 
 
-// Переменные для обучения
+        // Переменные для обучения
         this.memory = [];               // Память для опыта
         this.memorySize = 2000;         // Максимальный размер памяти
         this.gamma = 0.95;              // Коэффициент дисконтирования (важность будущих наград)
         this.epsilon = 1.0;             // Начальная вероятность случайного действия
-        this.epsilonMin = 0.01;         // Минимальная вероятность
-        this.epsilonDecay = 0.995;      // Скорость уменьшения epsilon
-        this.batchSize = 32;            // Размер батча для обучения
+        this.epsilonMin = 0.1;         // Минимальная вероятность
+        this.epsilonDecay = 0.98;      // Скорость уменьшения epsilon
+        this.batchSize = 128;            // Размер батча для обучения
+
+        //для залипания
+        this.lastActions = [];      // история последних действий
+        this.repeatPenalty = 0.3;   // штраф за повторение
+        this.repeatThreshold = 8;    // после 8 повторений начинаем штрафовать
+        this.stepsWithoutApproach = 0;
+        this.stepsTowardsPlayer = 0;
 }
 //___(РАБОТАЕТ) ПОДАЧА НА ВХОД ПДМ___//
     setGameField(gameField_) {       //
@@ -152,7 +166,7 @@ class HunterRLM {
                 return m;
             });
             this.model = model;
-            console.log('✅ Модель создана');
+            console.log('Модель создана');
             return true;
             
         }
@@ -259,9 +273,15 @@ class HunterRLM {
     return null;
     }
     getStateFromGrid(){
+            // Защита от отсутствия данных
+    if (!this.playerPosition || this.playerPosition.length === 0 || !this.hunterPosition || this.hunterPosition.length === 0) {
+        console.warn('getStateFromGrid: позиции игрока или охотника не инициализированы');
+        // Возвращаем нулевое состояние (массив из 8 нулей)
+        return [0, 0, 0, 0, 0, 0, 0, 0];
+    }
         // Пункты 1-2
-        const dx = Math.abs((this.playerPosition[0].xPos - this.hunterPosition[0].xPos)/this.xLenght);
-        const dy = Math.abs((this.playerPosition[0].yPos - this.hunterPosition[0].yPos)/this.yLenght);
+        const dx = Math.abs((this.playerPosition[0].xPos - this.hunterPosition[0].xPos)/this.yLenght);
+        const dy = Math.abs((this.playerPosition[0].yPos - this.hunterPosition[0].yPos)/this.xLenght);
 
         // Пункты 3-6 
         // Пока только координаты; может быть, потребуется выводить именно расстояние до препятствия
@@ -302,7 +322,7 @@ class HunterRLM {
 
         //console.log("dx = ",dx);
         //console.log("dy = ",dy);
-
+        console.log('📏 dx (по горизонтали):', dx, 'dy (по вертикали):', dy);
         // Формирую состояние
         return [
             Number(dx),                             // Расстояние от охотника до игрока по Х
@@ -322,59 +342,6 @@ class HunterRLM {
         ]
 
     }
-    /*async chooseAction(state) {
-        console.log(tf.version);
-        if(!this.model){
-        // ВРЕМЕННО: только случайные действия
-        console.log('🎲 Случайное действие (TensorFlow отключен)', state);
-        return 1;//Math.floor(Math.random() * this.actionSize);
-        }
-        try{
-            // 1. Убеждаемся, что бэкенд готов
-            await tf.ready();
-            
-            // Убеждаемся, что TensorFlow готов
-            if (!tf.engine().backend) {
-                console.log('⏳ Бэкенд еще не готов, ждем...');
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            console.log(tf.engine().backend);
-            const numericState = state.map(Number);
-            console.log('📊 Числовое состояние:', numericState);
-                
-                // Тензор
-                const stateTensor = tf.tensor2d([numericState],[1, this.stateSize]);
-                // Предсказания
-                const predictions = this.model.predict(stateTensor);
-                // Используем dataSync() вместо await data()
-                const qValues = await predictions.data();
-                //console.log("qValues = ", qValues);
-                // Очищаем память
-                stateTensor.dispose();
-                predictions.dispose();
-                let bestAction = 0;
-                let bestValue = qValues[0];
-                console.log(bestValue);
-
-                for(let i = 1; i < qValues.length; i++){
-                    if (qValues[i]>bestValue){
-                        bestValue = qValues[i];
-                        bestAction = i;
-                    }
-                }
-                // ОТЛАДКА: показываем, что выбрала нейросеть
-                // После получения qValues
-                const qValuesArray = Array.from(qValues); // ← это важно!
-                console.log('🧠 Нейросеть выбрала:', bestAction, 
-                    ['←', '→', '↑', '↓'][bestAction], 
-                    'Q-значения:', qValuesArray);
-                return bestAction;
-
-        }
-        catch(e){
-            console.error(e);
-        }
-    }*/
 // Обучение модели
     remember(state_, action_, reward_, nextState_, done_){
         // сохранение опыта ИИ
@@ -468,6 +435,8 @@ class HunterRLM {
         }
 
         console.log("обучение завершено!");
+        // В hunter.js, в методе replay
+        console.log(`🧠 Обучение на ${batch.length} примерах, epsilon: ${this.epsilon.toFixed(3)}`);
     }
 // выбор действия с жадностью по epsilon
 
@@ -478,10 +447,11 @@ class HunterRLM {
 // Чем выше значение, тем больше агент исследует, а чем ниже — тем больше использует полученные знания. 
 
     async chooseAction(state){
-        
+        //this.model.summary();
         if (Math.random() < this.epsilon){
             // Случайное действие - исследование
             console.warn('Исследование - случайное действие');
+            this.chooseSearch++;
             return Math.floor(Math.random() * this.actionSize);
         }
         // Действие от нейросети - использовани опыта
@@ -505,17 +475,48 @@ class HunterRLM {
                     const predictions = this.model.predict(stateTensor);
                     const qValues = predictions.dataSync();
 
+
+                    //==================\\
+                    //избегаем залипания\\
+                    //==================//
+                    
+                    // Применяем штраф за повторяющиеся действия
+                    if (this.lastActions.length >= this.repeatThreshold) {
+                        // Считаем, сколько раз повторялось каждое действие
+                        const actionCounts = [0, 0, 0, 0];
+                        for (const a of this.lastActions) {
+                            actionCounts[a]++;
+                        }
+                        
+                        // Штрафуем действия, которые повторялись слишком часто
+                        for (let i = 0; i < qValues.length; i++) {
+                            if (actionCounts[i] >= this.repeatThreshold) {
+                                qValues[i] -= this.repeatPenalty * actionCounts[i];
+                                console.log(`⚠️ Штраф за повторение действия ${i} (${actionCounts[i]} раз)`);
+                            }
+                        }
+                    }
+
+                    // Обновляем историю действий
+
+                    //==================\\
+                    //==================\\
+                    //==================//
+
                     let bestAction = 0;
                     let bestValue = qValues[0];
-
                     for (let i = 1; i < qValues.length; i++){
                         if (qValues[i] > bestValue){
                             bestValue = qValues[i];
                             bestAction = i;
                         }
                     }
+                    this.lastActions.push(bestAction);
+                    if (this.lastActions.length > 15) this.lastActions.shift(); // храним последние 10
                     console.error('выбрано действие', bestAction);
-                    
+                    console.log('📊 Q-значения:', qValues);
+                    console.log('🎯 Выбрано действие:', bestAction);
+                    this.chooseExploit++;
                     return bestAction;
                 
                 }
@@ -599,231 +600,3 @@ class HunterRLM {
 // end of class    
 }
 export default HunterRLM;
-
-
-/*
-class SimpleRLModel {
-    constructor() {
-        this.stateSize = 4; // Для CartPole: позиция, скорость, угол, угловая скорость
-        this.actionSize = 2; // Влево (0) или вправо (1)
-        this.learningRate = 0.001;
-        this.gamma = 0.95; // Коэффициент дисконтирования
-        this.epsilon = 1.0; // Начальная вероятность случайного действия
-        this.epsilonMin = 0.01;
-        this.epsilonDecay = 0.995;
-        
-        this.model = this.buildModel();
-        this.targetModel = this.buildModel();
-        this this.updateTargetModel();
-    }
-
-    // Создание простой нейронной сети
-    buildModel() {
-        const model = tf.sequential();
-        
-        // Входной слой
-        model.add(tf.layers.dense({
-            units: 24,
-            inputShape: [this.stateSize],
-            activation: 'relu'
-        }));
-        
-        // Скрытый слой
-        model.add(tf.layers.dense({
-            units: 24,
-            activation: 'relu'
-        }));
-        
-        // Выходной слой - Q-значения для каждого действия
-        model.add(tf.layers.dense({
-            units: this.actionSize,
-            activation: 'linear'
-        }));
-        
-        // Компиляция модели
-        model.compile({
-            optimizer: tf.train.adam(this.learningRate),
-            loss: 'meanSquaredError'
-        });
-        
-        return model;
-    }
-
-    // Выбор действия (epsilon-greedy стратегия)
-    async chooseAction(state) {
-        // Случайное действие с вероятностью epsilon
-        if (Math.random() <= this.epsilon) {
-            return Math.floor(Math.random() * this.actionSize);
-        }
-        
-        // Иначе выбираем действие с максимальным Q-значением
-        const stateTensor = tf.tensor2d([state]);
-        const qValues = await this.model.predict(stateTensor).data();
-        stateTensor.dispose();
-        
-        return qValues.indexOf(Math.max(...qValues));
-    }
-
-    // Обучение на одном опыте
-    async trainSingle(state, action, reward, nextState, done) {
-        // Получаем текущие Q-значения
-        const stateTensor = tf.tensor2d([state]);
-        const currentQ = await this.model.predict(stateTensor).data();
-        
-        // Получаем Q-значения для следующего состояния
-        const nextStateTensor = tf.tensorensor2d([nextState]);
-        const nextQ = await this.targetModel.predict(nextStateTensor).data();
-        
-        // Целевое Q-значение
-        let targetQ = [...currentQ];
-        
-        if (done) {
-            targetQ[action] = reward;
-        } else {
-            targetQ[action] = reward + this.gamma * Math.max(...nextQ);
-        }
-        
-        // Обучаем модель
-        await this.model.fit(stateTensor, tf.tensor2d([targetQ]), {
-            epochs: 1,
-            verbose: 0
-        });
-        
-        // Очистка тензоров
-        stateTensor.dispose();
-        nextStateTensor.dispose();
-        
-        // Уменьшаем epsilon
-        if (this.epsilon > this.epsilonMin) {
-            this.epsilon *= this.epsilonDecay;
-        }
-    }
-
-    // Обновление целевой модели
-    updateTargetModel() {
-        this.targetModel.setWeights(this.model.getWeights());
-    }
-
-    // Сохранение модели
-    async saveModel(path) {
-        await this.model.save(`localstorage://${path}`);
-    }
-
-    // Загрузка модели
-    async loadModel(path) {
-        this.model = await tf.loadLayersModel(`localstorage://${path}`);
-        this.updateTargetModel();
-    }
-}
-
-// Пример использования с простой средой CartPole
-class CartPoleEnvironment {
-    constructor() {
-        this.reset();
-    }
-
-    reset() {
-        // Начальное состояние CartPole
-        this.state = [
-            (Math.random() - 0.5) * 0.2, // позиция
-            (Math.random() - 0.5) * 0.2, // скорость
-            (Math.random() - 0.5) * 0.2, // угол
-            (Math.random() - 0.5) * 0.2  // угловая скорость
-        ];
-        this.steps = 0;
-        this.done = false;
-        return this.state;
-    }
-
-    step(action) {
-        // Простая симуляция CartPole
-        const [position, velocity, angle, angularVelocity] = this.state;
-        
-        let reward = 1.0; // Награда за каждый шаг, когда шест не упал
-        let newAngle = angle + angularVelocity * 0.1;
-        let newAngularVelocity = angularVelocity + (action === 1 ? 0.1 : -0.1);
-        
-        // Проверка на завершение эпизода
-        if (Math.abs(newAngle) > 0.2) {
-            this.done = true;
-            reward = -10.0;
-        }
-        
-        this.state = [
-            position + velocity * 0.1,
-            velocity + (Math.random() - 0.5) * 0.01,
-            newAngle,
-            newAngularVelocity
-        ];
-        
-        this.steps++;
-        
-        return {
-            state: this.state,
-            reward: reward,
-            done: this.done
-        };
-    }
-}
-
-// Основная функция обучения
-async function trainRL() {
-    const env = new CartPoleEnvironment();
-    const agent = new SimpleRLModel();
-    
-    const episodes = 100;
-    const maxSteps = 200;
-    
-    for (let episode = 0; episode < episodes; episode++) {
-        let state = env.reset();
-        let totalReward = 0;
-        
-        for (let step = 0; step < maxSteps; step++) {
-            // Выбор действия
-            const action = await agent.chooseAction(state);
-            
-            // Выполнение действия в среде
-            const { state: nextState, reward, done } = env.step(action);
-            
-            // Обучение агента
-            await agent.trainSingle(state, action, reward, nextState, done);
-            
-            state = nextState;
-            totalReward += reward;
-            
-            if (done) {
-                break;
-            }
-        }
-        
-        // Периодическое обновление целевой модели
-        if (episode % 10 === 0) {
-            agent.updateTargetModel();
-        }
-        
-        console.log(`Эпизод: ${episode + 1}, Награда: ${totalReward.toFixed(2)}, Epsilon: ${agent.epsilon.toFixed(3)}`);
-    }
-    
-    // Сохранение обученной модели
-    await agent.saveModel('cartpole-rl-model');
-    console.log('Модель сохранена!');
-}
-
-// Запуск обучения при загрузке страницы
-document.addEventListener('DOMContentLoaded', () => {
-    // Кнопка для запуска обучения
-    const trainButton = document.createElement('button');
-');
-    trainButton.textContent = 'Начать обучение RL модели';
-    trainButton.onclick = trainRL;
-    document.body.appendChild(trainButton);
-    
-    // Контейнер для логов
-    const logDiv = document.createElement('div');
-    logDiv.id = 'logs';
-    document.body.appendChild(logDiv);
-});
-
-export { SimpleRLModel, CartPoleEnvironment };
-
-*/

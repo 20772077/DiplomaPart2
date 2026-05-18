@@ -1,6 +1,7 @@
 <script>
 import axios from 'axios';
 import HunterRLM from './../../services/hunter';
+import musicManager from './../../services/musicManager';
 export default{
     data(){
         return{
@@ -12,28 +13,14 @@ export default{
     mounted() {
             // При загрузке страницы проверяем localStorage
             const storedLogged = localStorage.getItem('logged');
-            console.log(storedLogged)
+            console.log(storedLogged);
             this.logged = storedLogged === 'true';
             this.current_user = JSON.parse(localStorage.getItem('current_user'));
-
-            if (this.currentMusic) {this.currentMusic.pause();}
-            this.mainMenuMusic = new Audio(`assets/music/potatocatchertheme.mp3`);
-            this.mainMenuMusic.loop = true;
-            this.mainMenuMusic.play();
-            /*const storedUser = localStorage.getItem('current_user');
-            if (storedUser) {
-                try {
-                    this.current_user = JSON.parse(storedUser);
-                } catch (e) {
-                    console.error('Ошибка при парсинге current_user:', e);
-                    this.current_user = null;
-                }
-            } else {
-                this.current_user = null;
-            }*/
+            musicManager.init();
+            musicManager.play();
         },
     beforeUnmount(){
-      this.mainMenuMusic.pause();
+      //musicManager.pause();
     },
     methods: {
         async GoToGame(){
@@ -41,20 +28,16 @@ export default{
                 this.logged = true;
                 localStorage.setItem('logged', this.logged);
                 this.$router.push({
-                    name: 'login'
+                    name: 'login',
+                    params: { cameFrom: 'GoToGame' }
                     })
             }
             else{            
+                musicManager.pause();
             this.$router.push({
                     name: 'level0'
                 })
             }
-            // Инициализация охотника
-            //const hunter_AI = new HunterRLM(12, 27);
-            //await hunter_AI.buildModel();
-            //console.log(hunter_AI);
-            // Сохраняем модель в IndexedDB
-            //await hunter_AI.model.save('indexeddb://hunter-model');
         },
         GoToShop(){
             if(this.logged === false){
@@ -65,6 +48,7 @@ export default{
                 })
             }
             else{
+                musicManager.pause();
                 this.$router.push({
                     name: 'shop'
                 })
@@ -131,6 +115,11 @@ export default{
                 this.mainMenuMusic.play();
             }
     },
+        toggleMusic() {
+            this.isStoped = !this.isStoped;
+            console.log("music is...",this.isStoped);
+            musicManager.toggle();
+        }
 
     }
 }
@@ -138,7 +127,7 @@ export default{
 
 <template>
     <div id="bodMM">
-        <button @click="manipulateMainMenuMusic" class="music-controller">{{ isStoped ? "🔈": "🔊" }}</button>
+        <button @click="toggleMusic" class="music-controller">{{ isStoped ? "🔈": "🔊" }}</button>
         <div class="game-title"><h1>POTATO CATCHER</h1></div>
         <div class="buttons">
             <div class="button-start">

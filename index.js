@@ -1,18 +1,21 @@
 let express = require(`express`);
-let app = express();
-let port = 3005;
+const fs = require('fs').promises;
+const path = require('path');
 
-app.listen(port, function () {
-    console.log(`http://localhost:${port}`);
-});
+let app = express();
+let PORT = 3005;
 
 // Настройка CORS
 let cors = require('cors');
 app.use(cors({ origin: 'http://localhost:5173' }));
 
-
 // Настройка POST-запроса — JSON
 app.use(express.json());
+app.listen(PORT, function () {
+    console.log(`http://localhost:${PORT}`);
+});
+
+
 
 // Настройка БД
 let mongoose = require('mongoose');
@@ -57,7 +60,7 @@ app.post('/api/register', async (req, res) => {
     const newUser = await Users.create({'name':name})
     console.log(newUser);
     res.status(201).json(newUser);
-  }catch{
+  }catch (err){
     if (err.code === 11000) { // дублирование уникального поля
       res.status(409).json({ error: 'User already exists' });
     } else {
@@ -96,4 +99,82 @@ app.delete('/api/users/:user_deleted_id', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: 'Ошибка при удалении пользователя' });
   }
+});
+
+// На сервере (Работа с моделью)
+
+app.post('/api/save-model', async (req, res) => {
+    console.log('📥 Получен запрос на сохранение модели');
+    console.log('Размер данных:', JSON.stringify(req.body).length, 'байт');
+    console.log('Структура:', Object.keys(req.body));
+  const modelData = req.body;
+  await fs.writeFile(
+    path.join(__dirname, 'hunter-ai-model.json'),
+    JSON.stringify(modelData)  // ← Нужно преобразовать в строку!
+  );
+  res.json({ success: true });
+});
+
+app.get('/api/load-model', async (req, res) => {
+    try {
+        const modelPath = path.join(__dirname, 'hunter-ai-model.json');
+        const data = await fs.readFile(modelPath, 'utf8');
+        res.json(JSON.parse(data));
+    } catch (e) {
+        res.status(404).json({ error: 'Модель не найдена' });
+    }
+});
+
+
+//статистика
+
+const statsFilePath = path.join(__dirname, 'data', 'stats.txt');
+const totalStatsFilePath = path.join(__dirname, 'data', 'totalStats.txt');
+
+async function readStats() {
+    try {
+        const data = await fs.readFile(statsFilePath, 'utf8');
+        const parts = data.trim().split(' ');
+        return {
+            chooseSearch: parseInt(parts[0]) || 0,
+            chooseExploit: parseInt(parts[1]) || 0,
+            games: parseInt(parts[2]) || 0,
+            catches: parseInt(parts[3]) || 0
+        };
+    } catch (err) {
+        // Если файла нет — возвращаем нули
+        return { chooseSearch: 0, chooseExploit: 0, games: 0, catches: 0 };
+    }
+}
+async function writeStats(stats) {
+    const line = `${stats.chooseSearch} ${stats.chooseExploit} ${stats.games} ${stats.catches}`;
+    await fs.writeFile(statsFilePath, line, 'utf8');
+}
+async function writeTotalStats(stats) {
+    const line = `${stats.chooseSearch} ${stats.chooseExploit} ${stats.games} ${stats.catches} \n`;
+    await fs.appendFile(totalStatsFilePath, line, 'utf8');
+}
+
+// Получить статистику
+app.get('/api/stats', async (req, res) => {
+    const stats = await readStats();
+    res.json(stats);
+});
+
+// Сохранить статистику
+app.post('/api/stats', async (req, res) => {
+    const stats = req.body;
+    console.log('STATS:', stats);
+    await writeTotalStats(stats);
+    const oldStats = await readStats();
+
+    const summedStats = {
+        chooseSearch: oldStats.chooseSearch + stats.chooseSearch,
+        chooseExploit: oldStats.chooseExploit + stats.chooseExploit,
+        games: oldStats.games + stats.games,
+        catches: oldStats.catches + stats.catches
+    };
+    
+    await writeStats(summedStats);
+    res.json({ message: 'Stats saved' });
 });
