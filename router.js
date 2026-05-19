@@ -1,6 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import GameBoard from './components/views/GameBoard.vue'
+import MainMenu from './components/views/MainMenu.vue'
+import ShopPage from './components/views/ShopPage.vue'
+import AuthPage from './components/views/AuthPage.vue'
+import LoginPage from './components/views/LoginPage.vue'
+import EditPage from './components/views/EditPage.vue'
 export default createRouter({
     // История переходов сохраняется
     history: createWebHistory(),
@@ -8,8 +13,34 @@ export default createRouter({
     // Роуты и компоненты
     routes: [
         {
-            name: 'level0',
+            name: 'mainmenu',
             path: '/',
+            component: MainMenu
+        },
+        {
+            name: 'shop',
+            path: '/shop',
+            component: ShopPage
+        },
+        {
+            name: 'register',
+            path: '/register',
+            component: AuthPage
+        },
+        {
+            name: 'login',
+            path: '/login/:cameFrom?',
+            component: LoginPage
+        },
+        {
+            name: 'edit',
+            path: '/edit',
+            component: EditPage
+        },
+        // СТАРОТОВАЯ ЛОКАЦИЯ ПОСЛЕ НАЖАТИЯ КОНПКИ "СТАРТ" В ГЛАВНОМ МЕНЮ
+        {
+            name: 'level0',
+            path: '/start',
             component: GameBoard
         },
         {
